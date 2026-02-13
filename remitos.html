@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subir Remito</title>
+  <style>
+    :root { --border:#e8e8e8; --text:#111; --muted:#666; }
+    body{ font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; margin:0; background:#fff; color:var(--text); }
+    .wrap{ max-width:420px; margin:24px auto; padding:0 16px; }
+    h1{ font-size:22px; margin:8px 0 16px; }
+    .card{ border:1px solid var(--border); border-radius:14px; padding:14px; }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    input[type="file"]{ width:100%; }
+    button{
+      appearance:none; border:1px solid var(--border); background:#111; color:#fff;
+      padding:12px 14px; border-radius:12px; font-weight:600; cursor:pointer;
+    }
+    button[disabled]{ opacity:.5; cursor:not-allowed; }
+    .thumb{
+      width:100%; margin-top:12px; border:1px dashed var(--border);
+      border-radius:12px; overflow:hidden; display:none; background:#fafafa;
+    }
+    .thumb img{ width:100%; display:block; }
+    .status{ margin-top:12px; font-size:14px; color:var(--muted); min-height:20px; }
+    .ok{ color:#0a7a24; font-weight:600; }
+    .err{ color:#b00020; font-weight:600; }
+    .small{ font-size:12px; color:var(--muted); }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h1>Subir foto de remito</h1>
+
+    <div class="card">
+      <input id="file" type="file" accept="image/*" capture="environment" />
+
+      <div class="thumb" id="thumb">
+        <img id="preview" alt="Vista previa" />
+      </div>
+
+      <div class="row" style="margin-top:12px;">
+        <button id="btnUpload" disabled>Subir</button>
+        <span class="small" id="meta"></span>
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ✅ Pegar acá tu WebApp URL (Apps Script)
+  const WEBAPP_URL = "PASTE_YOUR_APPS_SCRIPT_WEBAPP_URL_HERE";
+
+  const $file = document.getElementById('file');
+  const $thumb = document.getElementById('thumb');
+  const $preview = document.getElementById('preview');
+  const $btn = document.getElementById('btnUpload');
+  const $status = document.getElementById('status');
+  const $meta = document.getElementById('meta');
+
+  let selectedFile = null;
+
+  function setStatus(msg, cls=''){
+    $status.className = 'status ' + cls;
+    $status.textContent = msg || '';
+  }
+
+  function bytesToMB(n){
+    return (n / (1024*1024)).toFixed(2) + " MB";
+  }
+
+  function makeId(){
+    return (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).toUpperCase();
+  }
+
+  $file.addEventListener('change', () => {
+    setStatus('');
+    selectedFile = $file.files && $file.files[0] ? $file.files[0] : null;
+
+    if (!selectedFile) {
+      $thumb.style.display = 'none';
+      $btn.disabled = true;
+      $meta.textContent = '';
+      return;
+    }
+
+    $btn.disabled = false;
+    $meta.textContent = `${selectedFile.name} · ${bytesToMB(selectedFile.size)}`;
+
+    const url = URL.createObjectURL(selectedFile);
+    $preview.src = url;
+    $thumb.style.display = 'block';
+  });
+
+  async function fileToBase64(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+      reader.onload = () => resolve(reader.result); // dataURL
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function upload(){
+    if (!selectedFile) return;
+
+    // Protecciones para operario
+    if (!WEBAPP_URL || WEBAPP_URL.includes("PASTE_YOUR")) {
+      setStatus("Falta configurar la URL del WebApp.", "err");
+      return;
+    }
+
+    // Apps Script WebApp suele bancar bien fotos normales.
+    // Si algún remito viene gigante, avisá (se puede comprimir).
+    const id = makeId();
+
+    $btn.disabled = true;
+    setStatus("Subiendo...", "");
+
+    try {
+      const dataUrl = await fileToBase64(selectedFile);
+      const base64 = String(dataUrl).split(',')[1]; // quita "data:image/..;base64,"
+
+      const payload = {
+        id,
+        filename: selectedFile.name || `remito_${id}.jpg`,
+        mimeType: selectedFile.type || "image/jpeg",
+        base64,
+        size: selectedFile.size
+      };
+
+      const res = await fetch(WEBAPP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch { json = { ok:false, error: text }; }
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || `Error HTTP ${res.status}`);
+      }
+
+      setStatus("✅ Foto enviada con éxito", "ok");
+
+      // Reset para evitar dobles envíos
+      selectedFile = null;
+      $file.value = "";
+      $thumb.style.display = 'none';
+      $btn.disabled = true;
+      $meta.textContent = "";
+
+    } catch (e) {
+      setStatus("❌ No se pudo enviar. Reintentar.", "err");
+      console.error(e);
+      $btn.disabled = false;
+    }
+  }
+
+  $btn.addEventListener('click', upload);
+})();
+</script>
+</body>
+</html>
